@@ -78,6 +78,7 @@ func main() {
 			fmt.Printf("%s\n", elem)
 		}
 		// happens after channel closes
+		conn.Close()
 		fmt.Println("Connection closed")
 	}
 }
