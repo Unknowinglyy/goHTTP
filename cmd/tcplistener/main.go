@@ -3,16 +3,17 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strings"
 )
 
-func getLinesChannel(conn net.Conn) <-chan string {
+func getLinesChannel(f io.ReadCloser) <-chan string {
 	// make buffered?
 	chanStr := make(chan string)
 
-	go func(conn net.Conn) {
+	go func() {
 		defer close(chanStr)
 
 		buff := make([]byte, 8)
@@ -20,7 +21,7 @@ func getLinesChannel(conn net.Conn) <-chan string {
 		sep := []byte("\n")
 
 		for {
-			num, err := conn.Read(buff)
+			num, err := f.Read(buff)
 			if err != nil {
 				// done reading the file
 				break
@@ -53,7 +54,7 @@ func getLinesChannel(conn net.Conn) <-chan string {
 		if len(curLine.String()) > 0 {
 			chanStr <- curLine.String()
 		}
-	}(conn)
+	}()
 	return chanStr
 }
 
