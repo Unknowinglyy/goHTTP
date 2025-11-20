@@ -58,7 +58,7 @@ func getLinesChannel(conn net.Conn) <-chan string {
 }
 
 func main() {
-	listener, err := net.Listen("tcp4", ":42069")
+	listener, err := net.Listen("tcp", ":42069")
 	if err != nil {
 		log.Fatalf("error when setting up listener: %s", err)
 	}
