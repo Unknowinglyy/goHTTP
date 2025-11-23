@@ -8,14 +8,14 @@ import (
 	"unicode"
 )
 
-type Request struct {
-	RequestLine RequestLine
-}
-
 type RequestLine struct {
 	HTTPVersion   string
 	RequestTarget string
 	Method        string
+}
+
+type Request struct {
+	RequestLine RequestLine
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -31,7 +31,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	buff, err := io.ReadAll(reader)
 	if err != nil {
-		return &Request{}, err
+		return nil, err
 	}
 
 	str := string(buff)
@@ -43,16 +43,16 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 func parseRequestLine(str string) (*Request, error) {
 	temp := strings.Split(str, " ")
 	if len(temp) != 3 {
-		return &Request{}, errors.New("invalid number of parts in request line")
+		return nil, errors.New("invalid number of parts in request line")
 	}
 
 	if ok := onlyUpper(temp[0]); !ok {
-		return &Request{}, errors.New("method does not contain only captial alphabetic characters")
+		return nil, errors.New("method does not contain only captial alphabetic characters")
 	}
 
 	idx := strings.Index(temp[2], "/")
 	if idx == -1 {
-		return &Request{}, errors.New("couldn't find '/' in HTTP version")
+		return nil, errors.New("couldn't find '/' in HTTP version")
 	}
 
 	// should only be the supported value (1.1)
