@@ -1,11 +1,10 @@
 package request
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log"
-	"strings"
-	"unicode"
 )
 
 type RequestLine struct {
@@ -16,6 +15,19 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
+	state       int // 0 = initialized, 1 = done
+}
+
+func (r *Request) parse(data []byte) (int, error) {
+	switch r.state {
+	case 0:
+		// call parseRequestLine
+	case 1:
+		return 0, errors.New("trying to parse data in a done state")
+	default:
+		return 0, errors.New("encountered an unknown state")
+	}
+	return 0, errors.New("not implemented yet")
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -34,44 +46,50 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		return nil, err
 	}
 
-	str := string(buff)
-	reqLine := strings.Split(str, "\r\n")[0]
-	request, err := parseRequestLine(reqLine)
+	sep := []byte("\r\n")
+
+	reqLine := bytes.Split(buff, sep)[0]
+	request, _, err := parseRequestLine(reqLine)
 	return request, err
 }
 
-func parseRequestLine(str string) (*Request, error) {
-	temp := strings.Split(str, " ")
+func parseRequestLine(data []byte) (*Request, int, error) {
+	returnChar := []byte("\r\n")
+	slash := []byte("/")
+	temp := bytes.Split(data, returnChar)
+
 	if len(temp) != 3 {
-		return nil, errors.New("invalid number of parts in request line")
+		return nil, 0, errors.New("invalid number of parts in request line")
 	}
 
 	if ok := onlyUpper(temp[0]); !ok {
-		return nil, errors.New("method does not contain only captial alphabetic characters")
+		return nil, 0, errors.New("method does not contain only captial alphabetic characters")
 	}
 
-	idx := strings.Index(temp[2], "/")
+	idx := bytes.Index(temp[2], slash)
 	if idx == -1 {
-		return nil, errors.New("couldn't find '/' in HTTP version")
+		return nil, 0, errors.New("couldn't find '/' in HTTP version")
 	}
 
 	// should only be the supported value (1.1)
 	version := temp[2][idx+1:]
 
-	reqLine := RequestLine{Method: temp[0], RequestTarget: temp[1], HTTPVersion: version}
+	reqLine := RequestLine{Method: string(temp[0]), RequestTarget: string(temp[1]), HTTPVersion: string(version)}
+	numBytes := len(temp[0]) + len(temp[1]) + len(version)
 	req := Request{RequestLine: reqLine}
-	return &req, nil
+	return &req, numBytes, nil
 }
 
-func onlyUpper(str string) bool {
+func onlyUpper(slice []byte) bool {
 	// no version of captial empty string
-	if str == "" {
-		log.Printf("%v is not upper", str)
+	if len(slice) == 0 {
+		log.Printf("%v is not upper", slice)
 		return false
 	}
-	for _, v := range str {
-		if !unicode.IsUpper(v) {
-			log.Printf("%v is not upper", v)
+
+	for _, char := range slice {
+		if char < 'A' || char > 'Z' {
+			log.Printf("%v is not upper", char)
 			return false
 		}
 	}
