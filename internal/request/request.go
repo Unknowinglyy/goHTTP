@@ -82,6 +82,11 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 	for req.state != DONE {
 
+		/*
+			TODO: still not convinced about this copy(), can't I just copy the entire
+			buffer into the new one since I shrink/clean it up directly after parsing?
+		*/
+
 		// grow buffer if it is full
 		if readToIndex == len(buff) {
 			temp := make([]byte, cap(buff)*2)
@@ -111,7 +116,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 			continue
 		}
 
-		// removing data from buff that was successfully parsed
+		// shrinking buff by removing data from buff that was successfully parsed
 		// copy starting from where the parser ended (num),
 		// all the way till the bytes read but not parsed (readToIndex)
 		copy(buff, buff[num:readToIndex])
