@@ -3,8 +3,28 @@ package request
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log"
+)
+
+const (
+	buffSize    = 8
+	INITIALIZED = 0
+	DONE        = 1
+)
+
+var (
+	// "carriage return and line feed"
+	CRLF                   = []byte("\r\n")
+	slash                  = []byte("/")
+	space                  = []byte(" ")
+	ErrorParseRequestLine  = fmt.Errorf("error when parsing the request line")
+	ErrorParseDoneState    = fmt.Errorf("trying to parse data that is already parsed")
+	ErrorUnknownState      = fmt.Errorf("encountered an unknown request state")
+	ErrorInvalidNumParts   = fmt.Errorf("invalid number of parts in request lines")
+	ErrorInvalidMethodName = fmt.Errorf("method does not contain only captial alphabetic characters")
+	ErrorNoSlash           = fmt.Errorf("couldn't find '/' in HTTP version")
 )
 
 type RequestLine struct {
@@ -15,19 +35,33 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
-	state       int // 0 = initialized, 1 = done
+	// 0 = initialized
+	// 1 = done
+	state int
 }
 
 func (r *Request) parse(data []byte) (int, error) {
 	switch r.state {
-	case 0:
-		// call parseRequestLine
-	case 1:
-		return 0, errors.New("trying to parse data in a done state")
+	case INITIALIZED:
+		req, n, err := parseRequestLine(data)
+		if err != nil {
+			return 0, errors.Join(ErrorParseRequestLine, err)
+		}
+		if n == 0 {
+			// err is nil here
+			// zero bytes were parsed with no error, simply needs more data
+			return 0, nil
+		}
+
+		r.RequestLine = req.RequestLine
+		r.state = DONE
+
+		return n, nil
+	case DONE:
+		return 0, ErrorParseDoneState
 	default:
-		return 0, errors.New("encountered an unknown state")
+		return 0, ErrorUnknownState
 	}
-	return 0, errors.New("not implemented yet")
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
@@ -41,47 +75,92 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		// 5 (this is the body) (might not be here)
 	*/
 
-	buff, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, err
+	buff := make([]byte, buffSize)
+	readToIndex := 0
+
+	req := Request{state: 0}
+
+	for req.state != DONE {
+
+		// grow buffer if it is full
+		if readToIndex == len(buff) {
+			temp := make([]byte, cap(buff)*2)
+			// only copy read bytes that have not yet been parsed
+			// (everything after readToIndex should be garbage values
+			// since we have only read up until readToIndex)
+			copy(temp, buff[:readToIndex])
+			buff = temp
+		}
+
+		// make sure additional bytes read are appended to end of buff
+		n, err := reader.Read(buff[readToIndex:])
+		if err != nil {
+			return nil, err
+		}
+		// keeping track of how many bytes that were actually read
+		readToIndex += n
+
+		// only parse the bytes in the buff that were actually read
+		num, err := req.parse(buff[:readToIndex])
+		if err != nil {
+			return nil, err
+		}
+		// nothing was parsed with no error, simply need more data.
+		// so we should try to read in more
+		if num == 0 {
+			continue
+		}
+
+		// removing data from buff that was successfully parsed
+		// copy starting from where the parser ended (num),
+		// all the way till the bytes read but not parsed (readToIndex)
+		copy(buff, buff[num:readToIndex])
+
+		// these bytes were parsed and removed from the buff,
+		// time to reset where we will be reading from
+		readToIndex -= num
 	}
-
-	sep := []byte("\r\n")
-
-	reqLine := bytes.Split(buff, sep)[0]
-	request, _, err := parseRequestLine(reqLine)
-	return request, err
+	return &req, nil
 }
 
 func parseRequestLine(data []byte) (*Request, int, error) {
-	returnChar := []byte("\r\n")
-	slash := []byte("/")
-	temp := bytes.Split(data, returnChar)
+	if !bytes.Contains(data, CRLF) {
+		// didn't find a carriage return, so wait for more data
+		return nil, 0, nil
+	}
+	lines := bytes.Split(data, CRLF)
+	firstLine := lines[0]
+	parts := bytes.Split(firstLine, space)
 
-	if len(temp) != 3 {
-		return nil, 0, errors.New("invalid number of parts in request line")
+	if len(parts) != 3 {
+		return nil, 0, ErrorInvalidNumParts
 	}
 
-	if ok := onlyUpper(temp[0]); !ok {
-		return nil, 0, errors.New("method does not contain only captial alphabetic characters")
+	if ok := onlyUpper(parts[0]); !ok {
+		return nil, 0, ErrorInvalidMethodName
 	}
 
-	idx := bytes.Index(temp[2], slash)
+	idx := bytes.Index(parts[2], slash)
 	if idx == -1 {
-		return nil, 0, errors.New("couldn't find '/' in HTTP version")
+		return nil, 0, ErrorNoSlash
 	}
 
 	// should only be the supported value (1.1)
-	version := temp[2][idx+1:]
+	version := parts[2][idx+1:]
 
-	reqLine := RequestLine{Method: string(temp[0]), RequestTarget: string(temp[1]), HTTPVersion: string(version)}
-	numBytes := len(temp[0]) + len(temp[1]) + len(version)
+	reqLine := RequestLine{
+		Method:        string(parts[0]),
+		RequestTarget: string(parts[1]),
+		HTTPVersion:   string(version),
+	}
+	// only consuming the first request line and the carriage return
+	numBytes := len(firstLine) + len(CRLF)
 	req := Request{RequestLine: reqLine}
 	return &req, numBytes, nil
 }
 
 func onlyUpper(slice []byte) bool {
-	// no version of captial empty string
+	// there is no "captial empty string"
 	if len(slice) == 0 {
 		log.Printf("%v is not upper", slice)
 		return false
