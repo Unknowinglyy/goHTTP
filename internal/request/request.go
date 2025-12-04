@@ -78,7 +78,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buff := make([]byte, buffSize)
 	readToIndex := 0
 
-	req := Request{state: 0}
+	req := Request{state: INITIALIZED}
 
 	for req.state != DONE {
 
@@ -98,12 +98,16 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		// make sure additional bytes read are appended to end of buff
-		n, err := reader.Read(buff[readToIndex:])
+		nBytes, err := reader.Read(buff[readToIndex:])
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				req.state = DONE
+				break
+			}
 			return nil, err
 		}
 		// keeping track of how many bytes that were actually read
-		readToIndex += n
+		readToIndex += nBytes
 
 		// only parse the bytes in the buff that were actually read
 		num, err := req.parse(buff[:readToIndex])
