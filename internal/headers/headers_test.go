@@ -104,4 +104,22 @@ func TestHeadersParse(t *testing.T) {
 		assert.Equal(t, 0, n)
 		assert.False(t, done)
 	})
+
+	t.Run("Append duplicate header values", func(t *testing.T) {
+		headers := NewHeaders()
+
+		// Pre-existing header value
+		headers["accept"] = "text/html"
+
+		// New header line with same field name
+		data := []byte("Accept: application/json\r\n")
+
+		n, done, err := headers.Parse(data)
+		require.NoError(t, err)
+		assert.False(t, done)
+		assert.Equal(t, len("Accept: application/json\r\n"), n)
+
+		// Expect the values to be joined with a comma
+		assert.Equal(t, "text/html, application/json", headers["accept"])
+	})
 }

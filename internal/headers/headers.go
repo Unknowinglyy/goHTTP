@@ -70,7 +70,14 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 	}
 
 	fieldValue := strings.TrimSpace(string(line[colonIdx+1:]))
-	h[fieldName] = fieldValue
+	// check if key already in map
+	val, ok := h[fieldName]
+	if ok {
+		newVal := val + ", " + fieldValue
+		h[fieldName] = newVal
+	} else {
+		h[fieldName] = fieldValue
+	}
 
 	// done is false when we get valid header line (could be more to parse)
 	// Parse should be called until done is true
