@@ -14,7 +14,7 @@ func TestHeadersParse(t *testing.T) {
 	n, done, err := headers.Parse(data)
 	require.NoError(t, err)
 	require.NotNil(t, headers)
-	assert.Equal(t, "localhost:42069", headers["Host"])
+	assert.Equal(t, "localhost:42069", headers["host"])
 	assert.Equal(t, 23, n)
 	assert.False(t, done)
 	// keep calling Parse on whatever wasn't parsed until you get done = true
@@ -34,7 +34,7 @@ func TestHeadersParse(t *testing.T) {
 		data := []byte("Host: localhost\r\n")
 		n, done, err := headers.Parse(data)
 		require.NoError(t, err)
-		assert.Equal(t, "localhost", headers["Host"])
+		assert.Equal(t, "localhost", headers["host"])
 		assert.Equal(t, len("Host: localhost\r\n"), n)
 		assert.False(t, done)
 	})
@@ -50,7 +50,7 @@ func TestHeadersParse(t *testing.T) {
 
 	t.Run("Valid 2 headers with existing headers", func(t *testing.T) {
 		headers := NewHeaders()
-		headers["Existing"] = "Thing"
+		headers["existing"] = "Thing"
 
 		n1, done1, err1 := headers.Parse([]byte("Host: localhost\r\n"))
 		require.NoError(t, err1)
@@ -60,9 +60,9 @@ func TestHeadersParse(t *testing.T) {
 		require.NoError(t, err2)
 		assert.False(t, done2)
 
-		assert.Equal(t, "Thing", headers["Existing"])
-		assert.Equal(t, "localhost", headers["Host"])
-		assert.Equal(t, "test", headers["User-Agent"])
+		assert.Equal(t, "Thing", headers["existing"])
+		assert.Equal(t, "localhost", headers["host"])
+		assert.Equal(t, "test", headers["user-agent"])
 		assert.Equal(t, len("Host: localhost\r\n"), n1)
 		assert.Equal(t, len("User-Agent: test\r\n"), n2)
 	})
@@ -79,6 +79,27 @@ func TestHeadersParse(t *testing.T) {
 		headers := NewHeaders()
 		data := []byte("Host : bad\r\n")
 		n, done, err := headers.Parse(data)
+		require.Error(t, err)
+		assert.Equal(t, 0, n)
+		assert.False(t, done)
+	})
+
+	t.Run("Valid header with uppercase field-name", func(t *testing.T) {
+		headers := NewHeaders()
+		data := []byte("ConTent-TyPe: text/html\r\n")
+		n, done, err := headers.Parse(data)
+		require.NoError(t, err)
+
+		assert.Equal(t, "text/html", headers["content-type"]) // lowercase expected
+		assert.Equal(t, len("ConTent-TyPe: text/html\r\n"), n)
+		assert.False(t, done)
+	})
+
+	t.Run("Invalid — illegal unicode character in field-name", func(t *testing.T) {
+		headers := NewHeaders()
+		data := []byte("H©st: localhost:42069\r\n\r\n")
+		n, done, err := headers.Parse(data)
+
 		require.Error(t, err)
 		assert.Equal(t, 0, n)
 		assert.False(t, done)

@@ -9,13 +9,17 @@ import (
 
 type Headers map[string]string
 
-const colon = ":"
+const (
+	colon   = ":"
+	symbols = "!#$%&'*+-.^_`|~"
+)
 
 var (
-	CRLF                  = []byte("\r\n")
-	ErrorParseNoColon     = fmt.Errorf("found no colon while parsing header")
-	ErrorNoFieldName      = fmt.Errorf("found no field name while parsing header")
-	ErrorSpaceBeforeColon = fmt.Errorf("found a space between field name and colon while parsing header")
+	CRLF                   = []byte("\r\n")
+	ErrorParseNoColon      = fmt.Errorf("found no colon while parsing header")
+	ErrorNoFieldName       = fmt.Errorf("found no field name while parsing header")
+	ErrorSpaceBeforeColon  = fmt.Errorf("found a space between field name and colon while parsing header")
+	ErrorInvalidCharInName = fmt.Errorf("found an invalid character in the field name while parsing header")
 )
 
 func NewHeaders() Headers {
@@ -60,10 +64,32 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 	if fieldName == "" {
 		return 0, false, ErrorNoFieldName
 	}
+	fieldName = strings.ToLower(fieldName)
+	if ok := validateFieldName(fieldName); !ok {
+		return 0, false, ErrorInvalidCharInName
+	}
+
 	fieldValue := strings.TrimSpace(string(line[colonIdx+1:]))
 	h[fieldName] = fieldValue
 
 	// done is false when we get valid header line (could be more to parse)
 	// Parse should be called until done is true
 	return endIdx + len(CRLF), false, nil
+}
+
+func validateFieldName(s string) bool {
+	for i := 0; i < len(s); i++ {
+		byte := s[i]
+
+		// should be ASCII only
+		if byte > 127 {
+			return false
+		}
+		if unicode.IsLetter(rune(byte)) || unicode.IsNumber(rune(byte)) || strings.ContainsRune(symbols, rune(byte)) {
+			continue
+		} else {
+			return false
+		}
+	}
+	return true
 }
