@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+
+	"goHttp/internal/headers"
 )
 
+const buffSize = 8
+
+type ParseState int
+
 const (
-	buffSize    = 8
-	INITIALIZED = 0
-	DONE        = 1
+	DoneState        ParseState = iota
+	InitializedState            // need to parse request line
+	ParsingHeadersState
 )
 
 var (
@@ -25,6 +30,7 @@ var (
 	ErrorInvalidNumParts   = fmt.Errorf("invalid number of parts in request lines")
 	ErrorInvalidMethodName = fmt.Errorf("method does not contain only captial alphabetic characters")
 	ErrorNoSlash           = fmt.Errorf("couldn't find '/' in HTTP version")
+	ErrorUnexectedEOF      = fmt.Errorf("unexpected EOF: missing end of headers")
 )
 
 type RequestLine struct {
@@ -35,14 +41,13 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
-	// 0 = initialized
-	// 1 = done
-	state int
+	Headers     headers.Headers
+	state       ParseState
 }
 
-func (r *Request) parse(data []byte) (int, error) {
+func (r *Request) parseSingle(data []byte) (int, error) {
 	switch r.state {
-	case INITIALIZED:
+	case InitializedState:
 		req, n, err := parseRequestLine(data)
 		if err != nil {
 			return 0, errors.Join(ErrorParseRequestLine, err)
@@ -54,39 +59,51 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		r.RequestLine = req.RequestLine
-		r.state = DONE
+		r.state = ParsingHeadersState
 
 		return n, nil
-	case DONE:
+	case ParsingHeadersState:
+		n, done, err := r.Headers.Parse(data)
+		if err != nil {
+			return 0, err
+		}
+
+		if done {
+			r.state = DoneState
+		}
+		return n, nil
+	case DoneState:
 		return 0, ErrorParseDoneState
 	default:
 		return 0, ErrorUnknownState
 	}
 }
 
-func RequestFromReader(reader io.Reader) (*Request, error) {
-	// "GET / HTTP/1.1\r\nHost: localhost:42069\r\nUser-Agent: curl/7.81.0\r\nAccept: */*\r\n\r\n"
-	/*
-		// 0 GET / HTTP/1.1
-		// 1 Host: localhost:42069
-		// 2 User-Agent: curl/7.81.0
-		// 3 Accept: (star/star)
-		// 4 (this is the MANDATORY \r\n before the body)
-		// 5 (this is the body) (might not be here)
-	*/
+func (r *Request) parse(data []byte) (int, error) {
+	// bytes parsed on this run
+	totalBytesParsed := 0
+	for r.state != DoneState {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			// need to read in more data, returning number of bytes successfully parsed
+			return totalBytesParsed, nil
+		}
+		totalBytesParsed += n
+	}
+	return totalBytesParsed, nil
+}
 
+func RequestFromReader(reader io.Reader) (*Request, error) {
 	buff := make([]byte, buffSize)
 	readToIndex := 0
 
-	req := Request{state: INITIALIZED}
+	// TODO: make a function for returning an initialized request object?
+	req := Request{state: InitializedState, Headers: headers.NewHeaders()}
 
-	for req.state != DONE {
-
-		/*
-			TODO: still not convinced about this copy(), can't I just copy the entire
-			buffer into the new one since I shrink/clean it up directly after parsing?
-		*/
-
+	for req.state != DoneState {
 		// grow buffer if it is full
 		if readToIndex == len(buff) {
 			temp := make([]byte, cap(buff)*2)
@@ -101,7 +118,10 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		nBytes, err := reader.Read(buff[readToIndex:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				req.state = DONE
+				// by the time the final read goes off, we should be done parsing
+				if req.state != DoneState {
+					return nil, ErrorUnexectedEOF
+				}
 				break
 			}
 			return nil, err
@@ -171,13 +191,11 @@ func parseRequestLine(data []byte) (*Request, int, error) {
 func onlyUpper(slice []byte) bool {
 	// there is no "captial empty string"
 	if len(slice) == 0 {
-		log.Printf("%v is not upper", slice)
 		return false
 	}
 
 	for _, char := range slice {
 		if char < 'A' || char > 'Z' {
-			log.Printf("%v is not upper", char)
 			return false
 		}
 	}

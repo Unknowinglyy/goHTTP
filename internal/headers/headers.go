@@ -30,11 +30,9 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 	// "Parse will be called over and over until all headers are parsed..."
 	// "can only parse one key:value pair at a time"
 
-	// find out if we have enough data
 	endIdx := bytes.Index(data, CRLF)
-	// found no CRLF
 	if endIdx == -1 {
-		// need more data
+		// found no CRLF, need more data
 		return 0, false, nil
 	}
 
