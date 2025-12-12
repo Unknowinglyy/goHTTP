@@ -20,10 +20,25 @@ var (
 	ErrorNoFieldName       = fmt.Errorf("found no field name while parsing header")
 	ErrorSpaceBeforeColon  = fmt.Errorf("found a space between field name and colon while parsing header")
 	ErrorInvalidCharInName = fmt.Errorf("found an invalid character in the field name while parsing header")
+	ErrorInvalidFieldName  = fmt.Errorf("gave an invalid field name when trying to access field value")
 )
 
 func NewHeaders() Headers {
 	return make(map[string]string)
+}
+
+func (h Headers) Get(fieldName string) (string, error) {
+	valid := validateFieldName(fieldName)
+	if !valid {
+		return "", ErrorInvalidFieldName
+	}
+
+	value, ok := h[strings.ToLower(fieldName)]
+	if !ok {
+		return "", nil
+	}
+
+	return value, nil
 }
 
 func (h Headers) Parse(data []byte) (int, bool, error) {
@@ -69,8 +84,8 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 
 	fieldValue := strings.TrimSpace(string(line[colonIdx+1:]))
 	// check if key already in map
-	val, ok := h[fieldName]
-	if ok {
+	val, valid := h[fieldName]
+	if valid {
 		newVal := val + ", " + fieldValue
 		h[fieldName] = newVal
 	} else {

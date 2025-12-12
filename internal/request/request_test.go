@@ -174,3 +174,113 @@ func TestHeaderParsingScenarios(t *testing.T) {
 		require.Error(t, err, "should error when CRLFCRLF never arrives")
 	})
 }
+
+func TestBodyParsing(t *testing.T) {
+	// Test: Standard Body
+	reader := &chunkReader{
+		data: "POST /submit HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"Content-Length: 13\r\n" +
+			"\r\n" +
+			"hello world!\n",
+		numBytesPerRead: 3,
+	}
+	r, err := RequestFromReader(reader)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, "hello world!\n", string(r.Body))
+
+	// Test: Body shorter than reported content length
+	reader = &chunkReader{
+		data: "POST /submit HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"Content-Length: 20\r\n" +
+			"\r\n" +
+			"partial content",
+		numBytesPerRead: 3,
+	}
+	_, err = RequestFromReader(reader)
+	require.Error(t, err)
+	assert.Equal(t, ErrorBodyLengthLesser, err)
+}
+
+func TestBodyScenarios(t *testing.T) {
+	//
+	// 1. Standard Body (valid)
+	//
+	reader := &chunkReader{
+		data: "POST /submit HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"Content-Length: 11\r\n" +
+			"\r\n" +
+			"hello world",
+		numBytesPerRead: 3,
+	}
+	r, err := RequestFromReader(reader)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, "hello world", string(r.Body))
+
+	//
+	// 2. Empty Body, 0 Content-Length (valid)
+	//
+	reader = &chunkReader{
+		data: "POST /empty HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"Content-Length: 0\r\n" +
+			"\r\n",
+		numBytesPerRead: 3,
+	}
+	r, err = RequestFromReader(reader)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, 0, len(r.Body))
+
+	//
+	// 3. Empty Body, NO Content-Length header (valid)
+	//
+	//   If no Content-Length → assume no body.
+	reader = &chunkReader{
+		data: "POST /nocl HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"\r\n",
+		numBytesPerRead: 3,
+	}
+	r, err = RequestFromReader(reader)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+	assert.Equal(t, 0, len(r.Body))
+
+	//
+	// 4. Body shorter than reported Content-Length (should error)
+	//
+	reader = &chunkReader{
+		data: "POST /short HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"Content-Length: 20\r\n" +
+			"\r\n" +
+			"too short",
+		numBytesPerRead: 3,
+	}
+	_, err = RequestFromReader(reader)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrorBodyLengthLesser)
+
+	//
+	// 5. Body exists but NO Content-Length (valid)
+	//
+	// if no Content-Length → treat as no body.
+	reader = &chunkReader{
+		data: "POST /weird HTTP/1.1\r\n" +
+			"Host: localhost:42069\r\n" +
+			"\r\n" +
+			"body but ignored",
+		numBytesPerRead: 3,
+	}
+	r, err = RequestFromReader(reader)
+	require.NoError(t, err)
+	require.NotNil(t, r)
+
+	// Body must be empty because parser treats Content-Length as required.
+	assert.Equal(t, 0, len(r.Body))
+}

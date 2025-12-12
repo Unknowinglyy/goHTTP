@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	"goHttp/internal/headers"
 )
@@ -17,6 +18,7 @@ const (
 	DoneState        ParseState = iota
 	InitializedState            // need to parse request line
 	ParsingHeadersState
+	ParsingBodyState
 )
 
 var (
@@ -31,6 +33,8 @@ var (
 	ErrorInvalidMethodName = fmt.Errorf("method does not contain only captial alphabetic characters")
 	ErrorNoSlash           = fmt.Errorf("couldn't find '/' in HTTP version")
 	ErrorUnexectedEOF      = fmt.Errorf("unexpected EOF: missing end of headers")
+	ErrorBodyLengthGreater = fmt.Errorf("actual body length is greater than reported body length")
+	ErrorBodyLengthLesser  = fmt.Errorf("actual body length is less than reported body length")
 )
 
 type RequestLine struct {
@@ -42,7 +46,12 @@ type RequestLine struct {
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        []byte
 	state       ParseState
+}
+
+func NewRequest() *Request {
+	return &Request{state: InitializedState, Headers: headers.NewHeaders()}
 }
 
 func (r *Request) parseSingle(data []byte) (int, error) {
@@ -53,7 +62,6 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return 0, errors.Join(ErrorParseRequestLine, err)
 		}
 		if n == 0 {
-			// err is nil here
 			// zero bytes were parsed with no error, simply needs more data
 			return 0, nil
 		}
@@ -69,7 +77,31 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 
 		if done {
+			r.state = ParsingBodyState
+		}
+		return n, nil
+
+	case ParsingBodyState:
+		val, err := r.Headers.Get("content-length")
+		if err != nil {
+			return 0, err
+		}
+
+		// assuming that if no "content-length" header,
+		// there is no body present so nothing to parse
+		if val == "" {
 			r.state = DoneState
+			return 0, nil
+		}
+
+		i, err := strconv.Atoi(val)
+		if err != nil {
+			return 0, err
+		}
+
+		n, err := parseBody(r, data, i)
+		if err != nil {
+			return 0, err
 		}
 		return n, nil
 	case DoneState:
@@ -77,6 +109,22 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	default:
 		return 0, ErrorUnknownState
 	}
+}
+
+func parseBody(req *Request, data []byte, expectedLength int) (int, error) {
+	actual := len(data)
+	if actual < expectedLength {
+		// not enough data, request for more
+		return 0, nil
+	}
+
+	if actual > expectedLength {
+		return 0, ErrorBodyLengthGreater
+	}
+
+	req.Body = data[:expectedLength]
+	req.state = DoneState
+	return expectedLength, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
@@ -100,8 +148,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	buff := make([]byte, buffSize)
 	readToIndex := 0
 
-	// TODO: make a function for returning an initialized request object?
-	req := Request{state: InitializedState, Headers: headers.NewHeaders()}
+	req := NewRequest()
 
 	for req.state != DoneState {
 		// grow buffer if it is full
@@ -118,6 +165,18 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		nBytes, err := reader.Read(buff[readToIndex:])
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if req.state == ParsingBodyState {
+					val, _ := req.Headers.Get("content-length")
+					expect, _ := strconv.Atoi(val)
+
+					// readToIndex holds number of unparsed bytes
+					actual := readToIndex
+
+					if actual < expect {
+						return nil, ErrorBodyLengthLesser
+					}
+				}
+
 				// by the time the final read goes off, we should be done parsing
 				if req.state != DoneState {
 					return nil, ErrorUnexectedEOF
@@ -149,7 +208,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		// time to reset where we will be reading from
 		readToIndex -= num
 	}
-	return &req, nil
+	return req, nil
 }
 
 func parseRequestLine(data []byte) (*Request, int, error) {
