@@ -12,10 +12,10 @@ import (
 
 const buffSize = 8
 
-type ParseState int
+type parseState int
 
 const (
-	DoneState        ParseState = iota
+	DoneState        parseState = iota
 	InitializedState            // need to parse request line
 	ParsingHeadersState
 	ParsingBodyState
@@ -47,11 +47,77 @@ type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
 	Body        []byte
-	state       ParseState
+	state       parseState
 }
 
 func NewRequest() *Request {
 	return &Request{state: InitializedState, Headers: headers.NewHeaders()}
+}
+
+func onlyUpper(slice []byte) bool {
+	// there is no "captial empty string"
+	if len(slice) == 0 {
+		return false
+	}
+
+	for _, char := range slice {
+		if char < 'A' || char > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+func parseRequestLine(data []byte) (*Request, int, error) {
+	if !bytes.Contains(data, CRLF) {
+		// didn't find a carriage return, so wait for more data
+		return nil, 0, nil
+	}
+	lines := bytes.Split(data, CRLF)
+	firstLine := lines[0]
+	parts := bytes.Split(firstLine, space)
+
+	if len(parts) != 3 {
+		return nil, 0, ErrorInvalidNumParts
+	}
+
+	if ok := onlyUpper(parts[0]); !ok {
+		return nil, 0, ErrorInvalidMethodName
+	}
+
+	idx := bytes.Index(parts[2], slash)
+	if idx == -1 {
+		return nil, 0, ErrorNoSlash
+	}
+
+	// should only be the supported value (1.1)
+	version := parts[2][idx+1:]
+
+	reqLine := RequestLine{
+		Method:        string(parts[0]),
+		RequestTarget: string(parts[1]),
+		HTTPVersion:   string(version),
+	}
+	// only consuming the first request line and the carriage return
+	numBytes := len(firstLine) + len(CRLF)
+	req := Request{RequestLine: reqLine}
+	return &req, numBytes, nil
+}
+
+func parseBody(req *Request, data []byte, expectedLength int) (int, error) {
+	actual := len(data)
+	if actual < expectedLength {
+		// not enough data, request for more
+		return 0, nil
+	}
+
+	if actual > expectedLength {
+		return 0, ErrorBodyLengthGreater
+	}
+
+	req.Body = data[:expectedLength]
+	req.state = DoneState
+	return expectedLength, nil
 }
 
 func (r *Request) parseSingle(data []byte) (int, error) {
@@ -109,22 +175,6 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 	default:
 		return 0, ErrorUnknownState
 	}
-}
-
-func parseBody(req *Request, data []byte, expectedLength int) (int, error) {
-	actual := len(data)
-	if actual < expectedLength {
-		// not enough data, request for more
-		return 0, nil
-	}
-
-	if actual > expectedLength {
-		return 0, ErrorBodyLengthGreater
-	}
-
-	req.Body = data[:expectedLength]
-	req.state = DoneState
-	return expectedLength, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
@@ -209,54 +259,4 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		readToIndex -= num
 	}
 	return req, nil
-}
-
-func parseRequestLine(data []byte) (*Request, int, error) {
-	if !bytes.Contains(data, CRLF) {
-		// didn't find a carriage return, so wait for more data
-		return nil, 0, nil
-	}
-	lines := bytes.Split(data, CRLF)
-	firstLine := lines[0]
-	parts := bytes.Split(firstLine, space)
-
-	if len(parts) != 3 {
-		return nil, 0, ErrorInvalidNumParts
-	}
-
-	if ok := onlyUpper(parts[0]); !ok {
-		return nil, 0, ErrorInvalidMethodName
-	}
-
-	idx := bytes.Index(parts[2], slash)
-	if idx == -1 {
-		return nil, 0, ErrorNoSlash
-	}
-
-	// should only be the supported value (1.1)
-	version := parts[2][idx+1:]
-
-	reqLine := RequestLine{
-		Method:        string(parts[0]),
-		RequestTarget: string(parts[1]),
-		HTTPVersion:   string(version),
-	}
-	// only consuming the first request line and the carriage return
-	numBytes := len(firstLine) + len(CRLF)
-	req := Request{RequestLine: reqLine}
-	return &req, numBytes, nil
-}
-
-func onlyUpper(slice []byte) bool {
-	// there is no "captial empty string"
-	if len(slice) == 0 {
-		return false
-	}
-
-	for _, char := range slice {
-		if char < 'A' || char > 'Z' {
-			return false
-		}
-	}
-	return true
 }
