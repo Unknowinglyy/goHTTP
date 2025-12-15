@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"sync/atomic"
+
+	"goHttp/internal/response"
 )
 
 var ErrorClosingOfflineServer = fmt.Errorf("trying to close a server that is already closed")
@@ -13,14 +15,10 @@ type Server struct {
 	listener net.Listener
 }
 
-func Serve(port int) (*Server, error) {
-	// It accepts a port and starts handling requests that come in. hardcode the response.
-
-	// hardcode this response:
-
+func Serve(port uint16) (*Server, error) {
+	// It accepts a port and starts handling requests that come in.
 	// Creates a net.Listener and returns a new Server instance. Starts listening for requests inside a goroutine.
-	addr := fmt.Sprintf("localhost:%d", port)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
 	}
@@ -78,17 +76,16 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	fmt.Printf("received %d bytes\n", n)
 
-	respStr := "HTTP/1.1 200 OK\r\n" +
-		"Content-Type: text/plain\r\n" +
-		"Content-Length: 12\r\n" +
-		"\r\n" +
-		"Hello World!"
-
-	res := []byte(respStr)
-
-	fmt.Printf("writing response of %d\n", len(res))
-	_, err = conn.Write(res)
+	err = response.WriteStatusLine(conn, response.StatusOK)
 	if err != nil {
-		fmt.Printf("error writing to connection: %v\n", err)
+		fmt.Printf("error writing status line: %v\n", err)
+		return
+	}
+
+	heads := response.GetDefaultHeaders(0)
+	err = response.WriteHeaders(conn, heads)
+	if err != nil {
+		fmt.Printf("error writing headers: %v\n", err)
+		return
 	}
 }

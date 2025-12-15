@@ -41,6 +41,23 @@ func (h Headers) Get(fieldName string) (string, error) {
 	return value, nil
 }
 
+func (h Headers) Set(fieldName, fieldValue string) {
+	// NOTE: Set assumes you are passing in a valid fieldName
+	// should it validate this itself, or leave that responsibility to the caller?
+	// same goes for fieldValue in terms of whitespace, assumes you cleaned it up
+	fieldName = strings.ToLower(fieldName)
+
+	val, valid := h[fieldName]
+	if valid {
+		// fieldName already in headers
+		newVal := val + ", " + fieldValue
+		h[fieldName] = newVal
+	} else {
+		// fieldName not in headers
+		h[fieldName] = fieldValue
+	}
+}
+
 func (h Headers) Parse(data []byte) (int, bool, error) {
 	// "Parse will be called over and over until all headers are parsed..."
 	// "can only parse one key:value pair at a time"
@@ -83,14 +100,7 @@ func (h Headers) Parse(data []byte) (int, bool, error) {
 	}
 
 	fieldValue := strings.TrimSpace(string(line[colonIdx+1:]))
-	// check if key already in map
-	val, valid := h[fieldName]
-	if valid {
-		newVal := val + ", " + fieldValue
-		h[fieldName] = newVal
-	} else {
-		h[fieldName] = fieldValue
-	}
+	h.Set(fieldName, fieldValue)
 
 	// done is false when we get valid header line (could be more to parse)
 	// Parse should be called until done is true
