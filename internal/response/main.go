@@ -51,8 +51,8 @@ func WriteHeaders(w io.Writer, h headers.Headers) error {
 		return ErrorNoHeaders
 	}
 	for key, val := range h {
-		line := fmt.Sprintf("%s: %s\r\n", key, val)
-		_, err := w.Write([]byte(line))
+		header := fmt.Sprintf("%s: %s\r\n", key, val)
+		_, err := w.Write([]byte(header))
 		if err != nil {
 			return err
 		}

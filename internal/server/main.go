@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 
+	"goHttp/internal/request"
 	"goHttp/internal/response"
 )
 
@@ -13,9 +16,26 @@ var ErrorClosingOfflineServer = fmt.Errorf("trying to close a server that is alr
 type Server struct {
 	running  *atomic.Bool
 	listener net.Listener
+	handler  Handler
 }
 
-func Serve(port uint16) (*Server, error) {
+type HandlerError struct {
+	status  response.StatusCode
+	message string
+}
+
+func NewHandlerError(stat response.StatusCode, mess string) *HandlerError {
+	return &HandlerError{status: stat, message: mess}
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+// func writeHandlerError(w io.Writer, he *HandlerError) error {
+// 	_, err := w.Write([]byte(he.message))
+// 	return err
+// }
+
+func Serve(h Handler, port uint16) (*Server, error) {
 	// It accepts a port and starts handling requests that come in.
 	// Creates a net.Listener and returns a new Server instance. Starts listening for requests inside a goroutine.
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -26,7 +46,7 @@ func Serve(port uint16) (*Server, error) {
 	aBool := atomic.Bool{}
 	aBool.Store(true)
 
-	server := Server{running: &aBool, listener: listener}
+	server := Server{running: &aBool, listener: listener, handler: h}
 
 	go server.listen()
 	return &server, nil
@@ -65,27 +85,46 @@ func (s *Server) listen() {
 }
 
 func (s *Server) handle(conn net.Conn) {
-	// Handles a single connection by writing the following response and then closing the connection:
-	buf := make([]byte, 1024)
+	// Handles a single connection by parsing request from connection,
+	// writing a response, and then closing the connection
+
 	defer conn.Close()
 
-	n, err := conn.Read(buf)
+	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		fmt.Printf("error reading from connection: %v\n", err)
+		body := "Bad Request\n"
+		writeResponse(conn, response.StatusBad, body)
 		return
 	}
-	fmt.Printf("received %d bytes\n", n)
 
-	err = response.WriteStatusLine(conn, response.StatusOK)
+	buff := new(bytes.Buffer)
+	he := s.handler(buff, req)
+	if he != nil {
+		writeResponse(conn, he.status, he.message)
+		return
+	}
+
+	writeResponse(conn, response.StatusOK, buff.String())
+}
+
+func writeResponse(w io.Writer, status response.StatusCode, body string) {
+	err := response.WriteStatusLine(w, status)
 	if err != nil {
 		fmt.Printf("error writing status line: %v\n", err)
 		return
 	}
 
-	heads := response.GetDefaultHeaders(0)
-	err = response.WriteHeaders(conn, heads)
+	headers := response.GetDefaultHeaders(len(body))
+	err = response.WriteHeaders(w, headers)
 	if err != nil {
 		fmt.Printf("error writing headers: %v\n", err)
 		return
+	}
+
+	if len(body) != 0 {
+		_, err := w.Write([]byte(body))
+		if err != nil {
+			fmt.Printf("error writing body: %v\n", err)
+		}
 	}
 }
