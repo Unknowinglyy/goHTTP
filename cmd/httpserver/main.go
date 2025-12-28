@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -14,26 +14,44 @@ import (
 
 const port = 42069
 
-func tempHandle(w io.Writer, req *request.Request) *server.HandlerError {
-	stat := response.StatusOK
-	mess := ""
+func tempHandle(w *response.Writer, req *request.Request) {
+	var status response.StatusCode
+	var body string
+
 	switch req.RequestLine.RequestTarget {
 	case "/yourproblem":
-		stat = response.StatusBad
-		mess = "Your problem is not my problem\n"
+		status = response.StatusBad
+		body = response.StatusBadBody
 	case "/myproblem":
-		stat = response.StatusInServErr
-		mess = "my bad\n"
+		status = response.StatusInServErr
+		body = response.StatusInServErrBody
 	default:
-		_, err := w.Write([]byte("all good\n"))
-		if err != nil {
-			// ignore write errors for now
-			return nil
-		}
-		return nil
+		status = response.StatusOK
+		body = response.StatusOKBody
 	}
-	he := server.NewHandlerError(stat, mess)
-	return he
+
+	heads := response.GetDefaultHeaders(len(body))
+	err := heads.Replace("Content-Type", "text/html")
+	if err != nil {
+		panic("we should always be able to replace Content-Type")
+	}
+	// can use this function for conveniency when it comes to testing:
+	// server.WriteResponse(w, status, heads, body)
+	err = w.WriteStatusLine(status)
+	if err != nil {
+		fmt.Printf("error writing status line: %v", err)
+		return
+	}
+	err = w.WriteHeaders(heads)
+	if err != nil {
+		fmt.Printf("error writing headers: %v", err)
+		return
+	}
+	_, err = w.WriteBody([]byte(body))
+	if err != nil {
+		fmt.Printf("error writing body: %v", err)
+		return
+	}
 }
 
 func main() {
@@ -46,6 +64,6 @@ func main() {
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
+	<-sigChan // blocking until we get either signal above
 	log.Print("Server gracefully stopped\n\n")
 }

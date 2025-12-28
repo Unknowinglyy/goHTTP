@@ -21,9 +21,12 @@ var (
 	ErrorSpaceBeforeColon  = fmt.Errorf("found a space between field name and colon while parsing header")
 	ErrorInvalidCharInName = fmt.Errorf("found an invalid character in the field name while parsing header")
 	ErrorInvalidFieldName  = fmt.Errorf("gave an invalid field name when trying to access field value")
+	ErrorHeaderNotFound    = fmt.Errorf("could not find header")
 )
 
 func NewHeaders() Headers {
+	// NOTE: in golang, maps are automatically treated as pointers,
+	// so no need for * or & syntax
 	return make(map[string]string)
 }
 
@@ -33,7 +36,8 @@ func (h Headers) Get(fieldName string) (string, error) {
 		return "", ErrorInvalidFieldName
 	}
 
-	value, ok := h[strings.ToLower(fieldName)]
+	fieldName = strings.ToLower(fieldName)
+	value, ok := h[fieldName]
 	if !ok {
 		return "", nil
 	}
@@ -56,6 +60,23 @@ func (h Headers) Set(fieldName, fieldValue string) {
 		// fieldName not in headers
 		h[fieldName] = fieldValue
 	}
+}
+
+func (h Headers) Replace(fieldName, newFieldValue string) error {
+	val, err := h.Get(fieldName)
+	if err != nil {
+		return err
+	}
+
+	// found no value for that fieldName
+	if val == "" {
+		return ErrorHeaderNotFound
+	}
+
+	// good to replace
+	fieldName = strings.ToLower(fieldName)
+	h[fieldName] = newFieldValue
+	return nil
 }
 
 func (h Headers) Parse(data []byte) (int, bool, error) {

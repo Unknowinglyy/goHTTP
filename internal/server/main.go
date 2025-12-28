@@ -1,17 +1,18 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 
+	"goHttp/internal/headers"
 	"goHttp/internal/request"
 	"goHttp/internal/response"
 )
 
 var ErrorClosingOfflineServer = fmt.Errorf("trying to close a server that is already closed")
+
+type Handler func(w *response.Writer, req *request.Request)
 
 type Server struct {
 	running  *atomic.Bool
@@ -28,13 +29,6 @@ func NewHandlerError(stat response.StatusCode, mess string) *HandlerError {
 	return &HandlerError{status: stat, message: mess}
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-// func writeHandlerError(w io.Writer, he *HandlerError) error {
-// 	_, err := w.Write([]byte(he.message))
-// 	return err
-// }
-
 func Serve(h Handler, port uint16) (*Server, error) {
 	// It accepts a port and starts handling requests that come in.
 	// Creates a net.Listener and returns a new Server instance. Starts listening for requests inside a goroutine.
@@ -43,7 +37,7 @@ func Serve(h Handler, port uint16) (*Server, error) {
 		return nil, err
 	}
 
-	aBool := atomic.Bool{}
+	var aBool atomic.Bool
 	aBool.Store(true)
 
 	server := Server{running: &aBool, listener: listener, handler: h}
@@ -61,7 +55,7 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) listen() {
-	// Uses a loop to .Accept new connections as they come in, and handles each one in a new goroutine. I used an atomic.Bool to track whether the server is closed or not so that I can ignore connection errors after the server is closed.
+	// uses a loop to .Accept new connections as they come in, and handles each one in a new goroutine.
 	fmt.Println("starting to listen")
 
 	for {
@@ -73,7 +67,7 @@ func (s *Server) listen() {
 				return
 			}
 			fmt.Println("error accepting connection: ", err)
-			break
+			continue
 		}
 		// remote addr = addr of client
 		// local addr = addr of server
@@ -87,42 +81,43 @@ func (s *Server) listen() {
 func (s *Server) handle(conn net.Conn) {
 	// Handles a single connection by parsing request from connection,
 	// writing a response, and then closing the connection
-
 	defer conn.Close()
+
+	writer := response.NewWriter(conn)
 
 	req, err := request.RequestFromReader(conn)
 	if err != nil {
-		body := "Bad Request\n"
-		writeResponse(conn, response.StatusBad, body)
+		// write back a minimal response when we can not parse the request
+		body := response.StatusBadBody
+		heads := response.GetDefaultHeaders(len(body))
+		err := heads.Replace("Content-Type", "text/html")
+		if err != nil {
+			fmt.Printf("error replacing header: %v", err)
+			return
+		}
+
+		WriteResponse(writer, response.StatusBad, heads, body)
 		return
 	}
 
-	buff := new(bytes.Buffer)
-	he := s.handler(buff, req)
-	if he != nil {
-		writeResponse(conn, he.status, he.message)
-		return
-	}
-
-	writeResponse(conn, response.StatusOK, buff.String())
+	s.handler(writer, req)
 }
 
-func writeResponse(w io.Writer, status response.StatusCode, body string) {
-	err := response.WriteStatusLine(w, status)
+func WriteResponse(w *response.Writer, status response.StatusCode, heads headers.Headers, body string) {
+	err := w.WriteStatusLine(status)
 	if err != nil {
 		fmt.Printf("error writing status line: %v\n", err)
 		return
 	}
 
-	headers := response.GetDefaultHeaders(len(body))
-	err = response.WriteHeaders(w, headers)
+	err = w.WriteHeaders(heads)
 	if err != nil {
 		fmt.Printf("error writing headers: %v\n", err)
 		return
 	}
 
 	if len(body) != 0 {
-		_, err := w.Write([]byte(body))
+		_, err := w.WriteBody([]byte(body))
 		if err != nil {
 			fmt.Printf("error writing body: %v\n", err)
 		}
