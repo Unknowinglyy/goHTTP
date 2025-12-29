@@ -90,7 +90,7 @@ func (s *Server) handle(conn net.Conn) {
 		// write back a minimal response when we can not parse the request
 		body := response.StatusBadBody
 		heads := response.GetDefaultHeaders(len(body))
-		err := heads.Replace("Content-Type", "text/html")
+		err := heads.Update("Content-Type", "text/html")
 		if err != nil {
 			fmt.Printf("error replacing header: %v", err)
 			return

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"goHttp/internal/headers"
+	"goHttp/internal/request"
 )
 
 type (
@@ -53,11 +54,14 @@ const (
   </body>
 </html>`
 
-	WriteEmptyState      writerState = "haven't written anything yet"
-	WriteStatusLineState writerState = "writing status line"
-	WriteHeadersState    writerState = "writing headers"
-	WriteBodyState       writerState = "writing body"
-	version                          = "HTTP/1.1"
+	WriteEmptyState       writerState = "haven't written anything yet"
+	WriteStatusLineState  writerState = "writing status line"
+	WriteHeadersState     writerState = "writing headers"
+	WriteBodyState        writerState = "writing body"
+	WriteChunkedBodyState writerState = "writing chunked body"
+	WriteDoneState        writerState = "done writing everything"
+
+	version = "HTTP/1.1"
 )
 
 type Writer struct {
@@ -137,4 +141,50 @@ func (w *Writer) WriteBody(p []byte) (int, error) {
 
 	n, err := w.conn.Write(p)
 	return n, err
+}
+
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	if w.state == WriteHeadersState {
+		w.state = WriteChunkedBodyState
+	}
+	if w.state != WriteChunkedBodyState {
+		return 0, ErrorInvalidWriteSequence
+	}
+
+	total := 0
+	num := len(p)
+	if num == 0 {
+		return 0, nil
+	}
+	CRLF := request.CRLF
+	sizeLine := fmt.Sprintf("%X%s", num, string(CRLF))
+	chunk := [2]string{sizeLine, string(p) + string(CRLF)}
+	for _, v := range chunk {
+		n, err := w.conn.Write([]byte(v))
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	return total, nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	if w.state != WriteChunkedBodyState {
+		return 0, ErrorInvalidWriteSequence
+	}
+	w.state = WriteDoneState
+
+	total := 0
+	CRLF := request.CRLF
+	endingChunk := [2]string{"0" + string(CRLF), string(CRLF)}
+	for _, v := range endingChunk {
+		n, err := w.conn.Write([]byte(v))
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+
+	return total, nil
 }

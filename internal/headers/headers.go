@@ -46,6 +46,9 @@ func (h Headers) Get(fieldName string) (string, error) {
 }
 
 func (h Headers) Set(fieldName, fieldValue string) {
+	// use this method when you do not care
+	// if the header you are setting is already in the request
+
 	// NOTE: Set assumes you are passing in a valid fieldName
 	// should it validate this itself, or leave that responsibility to the caller?
 	// same goes for fieldValue in terms of whitespace, assumes you cleaned it up
@@ -62,7 +65,7 @@ func (h Headers) Set(fieldName, fieldValue string) {
 	}
 }
 
-func (h Headers) Replace(fieldName, newFieldValue string) error {
+func (h Headers) Update(fieldName, newFieldValue string) error {
 	val, err := h.Get(fieldName)
 	if err != nil {
 		return err
@@ -76,6 +79,22 @@ func (h Headers) Replace(fieldName, newFieldValue string) error {
 	// good to replace
 	fieldName = strings.ToLower(fieldName)
 	h[fieldName] = newFieldValue
+	return nil
+}
+
+func (h Headers) Remove(fieldName string) error {
+	val, err := h.Get(fieldName)
+	if err != nil {
+		return err
+	}
+
+	if val == "" {
+		return ErrorHeaderNotFound
+	}
+
+	// good to remove
+	fieldName = strings.ToLower(fieldName)
+	delete(h, fieldName)
 	return nil
 }
 
