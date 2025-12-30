@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"goHttp/internal/headers"
-	"goHttp/internal/request"
 )
 
 type (
@@ -156,9 +155,11 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	if num == 0 {
 		return 0, nil
 	}
-	CRLF := request.CRLF
-	sizeLine := fmt.Sprintf("%X%s", num, string(CRLF))
-	chunk := [2]string{sizeLine, string(p) + string(CRLF)}
+
+	sizeLine := fmt.Sprintf("%X\r\n", num)
+	dataLine := fmt.Sprintf("%s\r\n", p)
+	chunk := [2]string{sizeLine, dataLine}
+
 	for _, v := range chunk {
 		n, err := w.conn.Write([]byte(v))
 		if err != nil {
@@ -175,16 +176,37 @@ func (w *Writer) WriteChunkedBodyDone() (int, error) {
 	}
 	w.state = WriteDoneState
 
-	total := 0
-	CRLF := request.CRLF
-	endingChunk := [2]string{"0" + string(CRLF), string(CRLF)}
-	for _, v := range endingChunk {
-		n, err := w.conn.Write([]byte(v))
-		if err != nil {
-			return 0, err
-		}
-		total += n
+	endingChunk := "0\r\n\r\n"
+	n, err := w.conn.Write([]byte(endingChunk))
+	return n, err
+}
+
+func (w *Writer) WriteChunkedBodyDoneWithTrailers() (int, error) {
+	if w.state != WriteChunkedBodyState {
+		return 0, ErrorInvalidWriteSequence
+	}
+	w.state = WriteDoneState
+
+	// does not have the extra CRLF as we expect trailers later
+	endingChunk := "0\r\n"
+	n, err := w.conn.Write([]byte(endingChunk))
+	return n, err
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	if w.state != WriteDoneState {
+		return ErrorInvalidWriteSequence
 	}
 
-	return total, nil
+	for key, val := range h {
+		trailer := fmt.Sprintf("%s: %s\r\n", key, val)
+		_, err := w.conn.Write([]byte(trailer))
+		if err != nil {
+			return err
+		}
+	}
+
+	// need extra CRLF to finish the trailer
+	_, err := w.conn.Write([]byte("\r\n"))
+	return err
 }
