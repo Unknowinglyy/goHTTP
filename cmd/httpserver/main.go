@@ -13,13 +13,15 @@ import (
 const port = 42069
 
 func main() {
-	// three handler examples in the internal/handlers package:
-	// handler (default handler), chunked encoding handler (proxyHandler), &
-	// chunked encoding with trailers (proxyHandlerWithTrailers)
+	// four handler examples in the internal/handlers package:
+	// handler (default handler), chunked encoding handler (proxyHandler),
+	// chunked encoding with trailers (proxyHandlerWithTrailers), &
+	// default handler that responds with a video file (BinaryDataHandler)
 
 	// srv, err := server.Serve(handlers.Handler, port)
 	// srv, err := server.Serve(handlers.ProxyHandlerWithTrailers, port)
-	srv, err := server.Serve(handlers.ProxyHandler, port)
+	// srv, err := server.Serve(handlers.ProxyHandler, port)
+	srv, err := server.Serve(handlers.BinaryDataHandler, port)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
