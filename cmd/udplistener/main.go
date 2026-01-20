@@ -11,7 +11,7 @@ import (
 func main() {
 	// gives you a UDPAddr struct which is needed in DialUDP
 	// setting up which addr:port we are sending to
-	addr, err := net.ResolveUDPAddr("udp", ":42069")
+	addr, err := net.ResolveUDPAddr("udp", ":8080")
 	if err != nil {
 		log.Fatalf("error resolving UDP address: %s", err)
 	}

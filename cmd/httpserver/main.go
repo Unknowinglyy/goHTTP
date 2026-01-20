@@ -10,7 +10,7 @@ import (
 	"goHttp/internal/server"
 )
 
-const port = 42069
+const port = 8080
 
 func main() {
 	// four handler examples in the internal/handlers package:

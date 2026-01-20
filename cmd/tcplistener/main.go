@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	listener, err := net.Listen("tcp", ":42069")
+	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		log.Fatalf("error when setting up listener: %s", err)
 	}
