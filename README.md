@@ -1,5 +1,5 @@
 # Usage
-1. go into directory `/cmd/httpserver` and run the command `go run .`
+1. Go into directory `/cmd/httpserver` and run the command `go run .`
  
     This will spawn an instance of the HTTP server running on port 8080 (this port number can be easily changed in `httpserver/main.go`).
 
